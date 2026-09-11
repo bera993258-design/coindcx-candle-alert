@@ -30,7 +30,7 @@ jobs:
       - name: Fetch CoinDCX candles
         env:
           PAIR: B-BTC_USDT
-          INTERVAL: 5m
+          INTERVAL: 15m
         run: |
           python candle_check.py
 
