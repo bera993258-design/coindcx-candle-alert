@@ -1,0 +1,2 @@
+checked_time_ist,pair,timeframe,candle_time,open,high,low,close,body,range,body_ratio_percent,atr14,required_body,condition_1,condition_2,final_signal
+2026-09-11 16:46:54,B-BTC_USDT,5m,1789125300000,76786.01,76814.01,76746.95,76784.0,2.0099999999947613,67.05999999999767,2.997315836556563,68.96428571428571,82.75714285714285,False,False,False
