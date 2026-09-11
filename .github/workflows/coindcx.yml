@@ -1,0 +1,37 @@
+name: CoinDCX Candle Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  check-candle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: pip install -r requirements.txt
+
+      - name: Run candle calculation
+        env:
+          PAIR: B-BTC_USDT
+          INTERVAL: 5m
+        run: python candle_check.py
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: coindcx-candle-result
+          path: output/
