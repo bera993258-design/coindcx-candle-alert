@@ -1,10 +1,11 @@
-name: CoinDCX 15 Minute Candle
+name: CoinDCX 15m Closed Candle
 
 on:
   workflow_dispatch:
 
   schedule:
-    - cron: "*/15 * * * *"
+    # 09:46 IST = 04:16 UTC
+    - cron: "16 4 * * *"
 
 permissions:
   contents: write
@@ -27,21 +28,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Fetch CoinDCX 15m candles
+      - name: Fetch 15m closed candle
         env:
           PAIR: B-BTC_USDT
           INTERVAL: 15m
         run: |
           python candle_check.py
 
-      - name: Show latest result
+      - name: Show result
         run: |
           cat output/live_result.json
 
-      - name: Commit generated CSV files
+      - name: Commit CSV files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add output/
-          git commit -m "Update 15m CoinDCX candle result" || echo "No changes"
+          git commit -m "Update 15m closed candle" || echo "No changes"
           git push
