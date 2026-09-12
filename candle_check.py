@@ -13,7 +13,7 @@ PAIR = os.getenv(
 
 INTERVAL = os.getenv(
     "INTERVAL",
-    "5m"
+    "15m"
 )
 
 ATR_PERIOD = 14
@@ -39,8 +39,8 @@ def get_ist_time():
 
 def timestamp_to_ist(timestamp):
     """
-    CoinDCX timestamp milliseconds
-    অথবা seconds হলে সেটিকে IST time-এ রূপান্তর করে।
+    CoinDCX timestamp milliseconds বা seconds
+    হলে সেটিকে Indian Standard Time-এ রূপান্তর করে।
     """
 
     if timestamp is None:
@@ -51,8 +51,7 @@ def timestamp_to_ist(timestamp):
     except (TypeError, ValueError):
         return str(timestamp)
 
-    # Unix milliseconds সাধারণত 13 digit
-    # Unix seconds সাধারণত 10 digit
+    # Seconds হলে milliseconds-এ convert
     if timestamp_number < 100000000000:
         timestamp_number *= 1000
 
@@ -144,7 +143,6 @@ def calculate_signal(df):
 
     df = df.copy()
 
-    # Time numeric করে sort
     df["time"] = pd.to_numeric(
         df["time"],
         errors="coerce"
@@ -181,13 +179,22 @@ def calculate_signal(df):
         ]
     ).reset_index(drop=True)
 
-    if len(df) < ATR_PERIOD:
+    if len(df) <= ATR_PERIOD:
         raise RuntimeError(
             f"ATR({ATR_PERIOD}) calculation-এর "
             "জন্য যথেষ্ট candle নেই"
         )
 
-    # Human-readable IST candle time
+    # CoinDCX-এর শেষ candle চলমান হতে পারে।
+    # তাই latest unfinished candle বাদ দেওয়া হচ্ছে।
+    df = df.iloc[:-1].copy()
+
+    if len(df) < ATR_PERIOD:
+        raise RuntimeError(
+            "শেষ চলমান candle বাদ দেওয়ার পরে "
+            "ATR calculation-এর জন্য candle কম আছে"
+        )
+
     df["candle_time_ist"] = df["time"].apply(
         timestamp_to_ist
     )
@@ -235,16 +242,17 @@ def calculate_signal(df):
         .mean()
     )
 
-    # Body >= 1.2 x ATR(14)
+    # Required Body = 1.2 × ATR(14)
     df["required_body"] = (
         ATR_MULTIPLIER * df["atr14"]
     )
 
+    # Body >= 1.2 × ATR(14)
     df["condition_1"] = (
         df["body"] >= df["required_body"]
     )
 
-    # Body / Range >= 60%
+    # Body / (High - Low) >= 60%
     df["condition_2"] = (
         df["body_ratio"] >= MIN_BODY_RATIO
     )
@@ -284,47 +292,75 @@ def create_result(df):
 
     result = {
         "checked_time_ist": get_ist_time(),
+
         "pair": PAIR,
+
         "timeframe": INTERVAL,
-        "candle_time_ist": latest[
+
+        "candle_start_time_ist": latest[
             "candle_time_ist"
         ],
+
+        "candle_end_time_ist": (
+            pd.to_datetime(
+                latest["time"],
+                unit="ms",
+                utc=True
+            )
+            .tz_convert("Asia/Kolkata")
+            + pd.Timedelta(minutes=15)
+        ).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        ),
+
         "open": safe_value(
             latest["open"]
         ),
+
         "high": safe_value(
             latest["high"]
         ),
+
         "low": safe_value(
             latest["low"]
         ),
+
         "close": safe_value(
             latest["close"]
         ),
+
         "body": safe_value(
             latest["body"]
         ),
+
         "range": safe_value(
             latest["range"]
         ),
+
         "body_ratio_percent": safe_value(
             latest["body_ratio"] * 100
         ),
+
         "atr14": safe_value(
             latest["atr14"]
         ),
+
         "required_body": safe_value(
             latest["required_body"]
         ),
+
         "condition_1": bool(
             latest["condition_1"]
         ),
+
         "condition_2": bool(
             latest["condition_2"]
         ),
+
         "final_signal": bool(
             latest["final_signal"]
         ),
+
         "signal_text": (
             "VALID SIGNAL"
             if bool(latest["final_signal"])
@@ -341,7 +377,6 @@ def save_files(df, result):
         exist_ok=True
     )
 
-    # Latest result JSON
     with open(
         "output/live_result.json",
         "w",
@@ -354,7 +389,6 @@ def save_files(df, result):
             ensure_ascii=False
         )
 
-    # Latest result CSV
     pd.DataFrame(
         [result]
     ).to_csv(
@@ -362,7 +396,6 @@ def save_files(df, result):
         index=False
     )
 
-    # All candle CSV
     all_columns = [
         "candle_time_ist",
         "time",
@@ -402,70 +435,93 @@ def save_files(df, result):
 
 def print_result(result):
     print("")
-    print("=" * 45)
-    print("CoinDCX Candle Analysis")
-    print("=" * 45)
+    print("=" * 50)
+    print("CoinDCX Closed Candle Analysis")
+    print("=" * 50)
+
     print(
         f"Checked Time IST: "
         f"{result['checked_time_ist']}"
     )
+
     print(
-        f"Candle Time IST: "
-        f"{result['candle_time_ist']}"
+        f"Candle Start IST: "
+        f"{result['candle_start_time_ist']}"
     )
+
+    print(
+        f"Candle End IST: "
+        f"{result['candle_end_time_ist']}"
+    )
+
     print(
         f"Pair: {result['pair']}"
     )
+
     print(
         f"Timeframe: {result['timeframe']}"
     )
+
     print(
         f"Open: {result['open']}"
     )
+
     print(
         f"High: {result['high']}"
     )
+
     print(
         f"Low: {result['low']}"
     )
+
     print(
         f"Close: {result['close']}"
     )
+
     print(
         f"Body: {result['body']}"
     )
+
     print(
         f"Range: {result['range']}"
     )
+
     print(
         f"Body/Range: "
         f"{result['body_ratio_percent']}%"
     )
+
     print(
         f"ATR(14): {result['atr14']}"
     )
+
     print(
         f"Required Body: "
         f"{result['required_body']}"
     )
+
     print(
         f"Condition 1: "
         f"{result['condition_1']}"
     )
+
     print(
         f"Condition 2: "
         f"{result['condition_2']}"
     )
+
     print(
         f"Final Signal: "
         f"{result['signal_text']}"
     )
-    print("=" * 45)
+
+    print("=" * 50)
 
 
 def main():
     print(
-        f"Fetching {PAIR} {INTERVAL} candles..."
+        f"Fetching closed {PAIR} "
+        f"{INTERVAL} candle..."
     )
 
     candles_df = get_candles()
@@ -486,7 +542,8 @@ def main():
     print_result(result)
 
     print(
-        "CSV files successfully saved in output/"
+        "CSV files successfully saved "
+        "in output/"
     )
 
 
