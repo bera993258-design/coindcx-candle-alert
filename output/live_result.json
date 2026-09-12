@@ -1,20 +1,25 @@
-{
-  "checked_time_ist": "2026-09-12 10:34:10",
-  "pair": "B-BTC_USDT",
-  "timeframe": "15m",
-  "candle_start_time_ist": "2026-09-12 10:15:00",
-  "candle_end_time_ist": "2026-09-12 10:30:00",
-  "open": 77251.5,
-  "high": 77258.36,
-  "low": 77215.86,
-  "close": 77222.75,
-  "body": 28.75,
-  "range": 42.5,
-  "body_ratio_percent": 67.64705882352942,
-  "atr14": 61.16142857142716,
-  "required_body": 73.39371428571259,
-  "condition_1": false,
-  "condition_2": true,
-  "final_signal": false,
-  "signal_text": "NO SIGNAL"
-}
+[
+  {
+    "candle_start_time_ist":"2026-09-12 10:30:00",
+    "candle_end_time_ist":"2026-09-12 10:45:00",
+    "checked_time_ist":"2026-09-12 10:48:13",
+    "pair":"B-BTC_USDT",
+    "timeframe":"15m",
+    "open":77222.75,
+    "high":77257.99,
+    "low":77164.06,
+    "close":77233.78,
+    "volume":412.63759,
+    "body":11.03,
+    "range":93.93,
+    "body_ratio":0.1174278718,
+    "true_range":93.93,
+    "atr14":63.185,
+    "required_body":75.822,
+    "condition_1":false,
+    "condition_2":false,
+    "final_signal":false,
+    "signal_text":"NO SIGNAL",
+    "body_ratio_percent":11.7427871819
+  }
+]
