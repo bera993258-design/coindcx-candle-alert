@@ -1,2 +1,2 @@
-checked_time_ist,pair,timeframe,candle_time_ist,open,high,low,close,body,range,body_ratio_percent,atr14,required_body,condition_1,condition_2,final_signal,signal_text
-2026-09-12 09:32:08,B-BTC_USDT,15m,2026-09-12 09:30:00,77268.09,77281.47,77268.08,77281.47,13.380000000004657,13.389999999999418,99.92531740108468,61.818571428571886,74.18228571428627,False,True,False,NO SIGNAL
+checked_time_ist,pair,timeframe,candle_start_time_ist,candle_end_time_ist,open,high,low,close,body,range,body_ratio_percent,atr14,required_body,condition_1,condition_2,final_signal,signal_text
+2026-09-12 09:47:56,B-BTC_USDT,15m,2026-09-12 09:30:00,2026-09-12 09:45:00,77268.09,77314.01,77268.08,77294.0,25.910000000003492,45.929999999993015,56.41193119966783,64.14285714285714,76.97142857142856,False,False,False,NO SIGNAL
