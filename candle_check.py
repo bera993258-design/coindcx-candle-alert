@@ -21,13 +21,17 @@ ATR_MULTIPLIER = 1.2
 MIN_BODY_RATIO = 0.60
 LIMIT = 100
 
-COINDCX_URL = (
+API_URL = (
     "https://public.coindcx.com/"
     "market_data/candles/"
 )
 
 IST = timezone(
     timedelta(hours=5, minutes=30)
+)
+
+HISTORY_FILE = (
+    "output/closed_candles_history.csv"
 )
 
 
@@ -38,29 +42,17 @@ def get_ist_time():
 
 
 def timestamp_to_ist(timestamp):
-    """
-    CoinDCX timestamp milliseconds বা seconds
-    হলে সেটিকে Indian Standard Time-এ রূপান্তর করে।
-    """
+    value = float(timestamp)
 
-    if timestamp is None:
-        return ""
+    if value < 100000000000:
+        value *= 1000
 
-    try:
-        timestamp_number = float(timestamp)
-    except (TypeError, ValueError):
-        return str(timestamp)
-
-    # Seconds হলে milliseconds-এ convert
-    if timestamp_number < 100000000000:
-        timestamp_number *= 1000
-
-    date_time = datetime.fromtimestamp(
-        timestamp_number / 1000,
+    dt = datetime.fromtimestamp(
+        value / 1000,
         tz=IST
     )
 
-    return date_time.strftime(
+    return dt.strftime(
         "%Y-%m-%d %H:%M:%S"
     )
 
@@ -77,50 +69,32 @@ def get_candles():
         "User-Agent": "Mozilla/5.0"
     }
 
-    try:
-        response = requests.get(
-            COINDCX_URL,
-            params=params,
-            headers=headers,
-            timeout=30
-        )
-    except requests.RequestException as error:
-        raise RuntimeError(
-            f"CoinDCX connection error: {error}"
-        ) from error
+    response = requests.get(
+        API_URL,
+        params=params,
+        headers=headers,
+        timeout=30
+    )
 
     if response.status_code != 200:
-        error_text = response.text[:500]
-
         raise RuntimeError(
-            "CoinDCX API error: "
+            f"CoinDCX API error: "
             f"{response.status_code} | "
-            f"{error_text}"
+            f"{response.text[:300]}"
         )
 
-    try:
-        data = response.json()
-    except ValueError as error:
-        raise RuntimeError(
-            "CoinDCX valid JSON পাঠায়নি: "
-            f"{response.text[:500]}"
-        ) from error
+    data = response.json()
 
-    if not isinstance(data, list):
+    if not isinstance(data, list) or not data:
         raise RuntimeError(
-            "CoinDCX response list নয়"
-        )
-
-    if len(data) == 0:
-        raise RuntimeError(
-            "CoinDCX থেকে কোনো candle data পাওয়া যায়নি"
+            "CoinDCX candle data পাওয়া যায়নি"
         )
 
     return pd.DataFrame(data)
 
 
-def calculate_signal(df):
-    required_columns = [
+def calculate(df):
+    required = [
         "time",
         "open",
         "high",
@@ -129,16 +103,15 @@ def calculate_signal(df):
         "volume"
     ]
 
-    missing_columns = [
+    missing = [
         column
-        for column in required_columns
+        for column in required
         if column not in df.columns
     ]
 
-    if missing_columns:
+    if missing:
         raise RuntimeError(
-            "CoinDCX response-এ column নেই: "
-            f"{missing_columns}"
+            f"Missing columns: {missing}"
         )
 
     df = df.copy()
@@ -148,23 +121,13 @@ def calculate_signal(df):
         errors="coerce"
     )
 
-    df = df.dropna(
-        subset=["time"]
-    )
-
-    df = df.sort_values(
-        "time"
-    ).reset_index(drop=True)
-
-    numeric_columns = [
+    for column in [
         "open",
         "high",
         "low",
         "close",
         "volume"
-    ]
-
-    for column in numeric_columns:
+    ]:
         df[column] = pd.to_numeric(
             df[column],
             errors="coerce"
@@ -172,44 +135,58 @@ def calculate_signal(df):
 
     df = df.dropna(
         subset=[
+            "time",
             "open",
             "high",
             "low",
             "close"
         ]
+    )
+
+    df = df.sort_values(
+        "time"
     ).reset_index(drop=True)
 
+    # শেষ row চলমান candle হতে পারে।
+    # তাই সেটি বাদ দিচ্ছি।
     if len(df) <= ATR_PERIOD:
         raise RuntimeError(
-            f"ATR({ATR_PERIOD}) calculation-এর "
-            "জন্য যথেষ্ট candle নেই"
+            "ATR calculation-এর জন্য "
+            "যথেষ্ট candle নেই"
         )
 
-    # CoinDCX-এর শেষ candle চলমান হতে পারে।
-    # তাই latest unfinished candle বাদ দেওয়া হচ্ছে।
     df = df.iloc[:-1].copy()
 
     if len(df) < ATR_PERIOD:
         raise RuntimeError(
-            "শেষ চলমান candle বাদ দেওয়ার পরে "
-            "ATR calculation-এর জন্য candle কম আছে"
+            "Closed candle বাদ দেওয়ার পরে "
+            "যথেষ্ট data নেই"
         )
 
-    df["candle_time_ist"] = df["time"].apply(
-        timestamp_to_ist
+    df["candle_start_time_ist"] = (
+        df["time"].apply(timestamp_to_ist)
     )
 
-    # Body = ABS(Close - Open)
+    df["candle_end_time_ist"] = (
+        pd.to_datetime(
+            df["time"],
+            unit="ms",
+            utc=True
+        )
+        .dt.tz_convert("Asia/Kolkata")
+        + pd.Timedelta(minutes=15)
+    ).dt.strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
     df["body"] = (
         df["close"] - df["open"]
     ).abs()
 
-    # Range = High - Low
     df["range"] = (
         df["high"] - df["low"]
     )
 
-    # Body / Range
     df["body_ratio"] = (
         df["body"] /
         df["range"].replace(0, pd.NA)
@@ -232,173 +209,73 @@ def calculate_signal(df):
 
     df["true_range"] = true_range
 
-    # Simple rolling ATR(14)
     df["atr14"] = (
         df["true_range"]
         .rolling(
-            window=ATR_PERIOD,
+            ATR_PERIOD,
             min_periods=ATR_PERIOD
         )
         .mean()
     )
 
-    # Required Body = 1.2 × ATR(14)
     df["required_body"] = (
         ATR_MULTIPLIER * df["atr14"]
     )
 
-    # Body >= 1.2 × ATR(14)
     df["condition_1"] = (
         df["body"] >= df["required_body"]
     )
 
-    # Body / (High - Low) >= 60%
     df["condition_2"] = (
         df["body_ratio"] >= MIN_BODY_RATIO
     )
 
-    # Both conditions must be true
     df["final_signal"] = (
         df["condition_1"] &
         df["condition_2"]
     )
 
+    df["signal_text"] = df[
+        "final_signal"
+    ].map(
+        {
+            True: "VALID SIGNAL",
+            False: "NO SIGNAL"
+        }
+    )
+
+    df["checked_time_ist"] = get_ist_time()
+
+    df["pair"] = PAIR
+    df["timeframe"] = INTERVAL
+
     return df
 
 
-def safe_value(value):
-    """
-    NaN হলে blank return করে।
-    Numpy value হলে normal Python value return করে।
-    """
-
-    if value is None:
-        return ""
+def load_history():
+    if not os.path.exists(HISTORY_FILE):
+        return pd.DataFrame()
 
     try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-
-    if hasattr(value, "item"):
-        return value.item()
-
-    return value
-
-
-def create_result(df):
-    latest = df.iloc[-1]
-
-    result = {
-        "checked_time_ist": get_ist_time(),
-
-        "pair": PAIR,
-
-        "timeframe": INTERVAL,
-
-        "candle_start_time_ist": latest[
-            "candle_time_ist"
-        ],
-
-        "candle_end_time_ist": (
-            pd.to_datetime(
-                latest["time"],
-                unit="ms",
-                utc=True
-            )
-            .tz_convert("Asia/Kolkata")
-            + pd.Timedelta(minutes=15)
-        ).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        ),
-
-        "open": safe_value(
-            latest["open"]
-        ),
-
-        "high": safe_value(
-            latest["high"]
-        ),
-
-        "low": safe_value(
-            latest["low"]
-        ),
-
-        "close": safe_value(
-            latest["close"]
-        ),
-
-        "body": safe_value(
-            latest["body"]
-        ),
-
-        "range": safe_value(
-            latest["range"]
-        ),
-
-        "body_ratio_percent": safe_value(
-            latest["body_ratio"] * 100
-        ),
-
-        "atr14": safe_value(
-            latest["atr14"]
-        ),
-
-        "required_body": safe_value(
-            latest["required_body"]
-        ),
-
-        "condition_1": bool(
-            latest["condition_1"]
-        ),
-
-        "condition_2": bool(
-            latest["condition_2"]
-        ),
-
-        "final_signal": bool(
-            latest["final_signal"]
-        ),
-
-        "signal_text": (
-            "VALID SIGNAL"
-            if bool(latest["final_signal"])
-            else "NO SIGNAL"
+        return pd.read_csv(
+            HISTORY_FILE
         )
-    }
+    except Exception:
+        return pd.DataFrame()
 
-    return result
 
-
-def save_files(df, result):
+def save_history(df):
     os.makedirs(
         "output",
         exist_ok=True
     )
 
-    with open(
-        "output/live_result.json",
-        "w",
-        encoding="utf-8"
-    ) as file:
-        json.dump(
-            result,
-            file,
-            indent=2,
-            ensure_ascii=False
-        )
-
-    pd.DataFrame(
-        [result]
-    ).to_csv(
-        "output/live_result.csv",
-        index=False
-    )
-
-    all_columns = [
-        "candle_time_ist",
-        "time",
+    history_columns = [
+        "candle_start_time_ist",
+        "candle_end_time_ist",
+        "checked_time_ist",
+        "pair",
+        "timeframe",
         "open",
         "high",
         "low",
@@ -407,143 +284,106 @@ def save_files(df, result):
         "body",
         "range",
         "body_ratio",
+        "body_ratio_percent",
         "true_range",
         "atr14",
         "required_body",
         "condition_1",
         "condition_2",
-        "final_signal"
+        "final_signal",
+        "signal_text"
     ]
 
-    available_columns = [
+    available = [
         column
-        for column in all_columns
+        for column in history_columns
         if column in df.columns
     ]
 
-    output_df = df[available_columns].copy()
+    output = df[available].copy()
 
-    output_df["body_ratio_percent"] = (
-        output_df["body_ratio"] * 100
+    output["body_ratio_percent"] = (
+        output["body_ratio"] * 100
     )
 
-    output_df.to_csv(
-        "output/all_candles.csv",
+    output.to_csv(
+        HISTORY_FILE,
         index=False
     )
 
+    # Latest result
+    latest = output.tail(1)
 
-def print_result(result):
-    print("")
-    print("=" * 50)
-    print("CoinDCX Closed Candle Analysis")
-    print("=" * 50)
-
-    print(
-        f"Checked Time IST: "
-        f"{result['checked_time_ist']}"
+    latest.to_csv(
+        "output/live_result.csv",
+        index=False
     )
 
-    print(
-        f"Candle Start IST: "
-        f"{result['candle_start_time_ist']}"
+    latest.to_json(
+        "output/live_result.json",
+        orient="records",
+        indent=2
     )
-
-    print(
-        f"Candle End IST: "
-        f"{result['candle_end_time_ist']}"
-    )
-
-    print(
-        f"Pair: {result['pair']}"
-    )
-
-    print(
-        f"Timeframe: {result['timeframe']}"
-    )
-
-    print(
-        f"Open: {result['open']}"
-    )
-
-    print(
-        f"High: {result['high']}"
-    )
-
-    print(
-        f"Low: {result['low']}"
-    )
-
-    print(
-        f"Close: {result['close']}"
-    )
-
-    print(
-        f"Body: {result['body']}"
-    )
-
-    print(
-        f"Range: {result['range']}"
-    )
-
-    print(
-        f"Body/Range: "
-        f"{result['body_ratio_percent']}%"
-    )
-
-    print(
-        f"ATR(14): {result['atr14']}"
-    )
-
-    print(
-        f"Required Body: "
-        f"{result['required_body']}"
-    )
-
-    print(
-        f"Condition 1: "
-        f"{result['condition_1']}"
-    )
-
-    print(
-        f"Condition 2: "
-        f"{result['condition_2']}"
-    )
-
-    print(
-        f"Final Signal: "
-        f"{result['signal_text']}"
-    )
-
-    print("=" * 50)
 
 
 def main():
     print(
-        f"Fetching closed {PAIR} "
-        f"{INTERVAL} candle..."
+        f"Fetching {PAIR} {INTERVAL} candles"
     )
 
-    candles_df = get_candles()
+    raw = get_candles()
+    calculated = calculate(raw)
 
-    calculated_df = calculate_signal(
-        candles_df
+    old_history = load_history()
+
+    new_rows = calculated.copy()
+
+    if not old_history.empty:
+        combined = pd.concat(
+            [
+                old_history,
+                new_rows
+            ],
+            ignore_index=True
+        )
+    else:
+        combined = new_rows
+
+    combined = combined.drop_duplicates(
+        subset=[
+            "pair",
+            "timeframe",
+            "candle_start_time_ist"
+        ],
+        keep="last"
     )
 
-    result = create_result(
-        calculated_df
-    )
+    combined = combined.sort_values(
+        "candle_start_time_ist"
+    ).reset_index(drop=True)
 
-    save_files(
-        calculated_df,
-        result
-    )
+    # শেষ 1000টি candle রাখা
+    combined = combined.tail(1000)
 
-    print_result(result)
+    save_history(combined)
 
+    latest = combined.iloc[-1]
+
+    print("")
     print(
-        "CSV files successfully saved "
-        "in output/"
+        "Latest closed candle:"
+    )
+    print(
+        f"Start IST: "
+        f"{latest['candle_start_time_ist']}"
+    )
+    print(
+        f"End IST: "
+        f"{latest['candle_end_time_ist']}"
+    )
+    print(
+        f"Signal: "
+        f"{latest['signal_text']}"
     )
 
 
